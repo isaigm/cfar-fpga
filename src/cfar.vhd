@@ -3,7 +3,7 @@ library ieee;
   use ieee.numeric_std.all;
   use ieee.math_real.all;
   use work.cfar_pkg.all;
-entity ca_cfar is
+entity cfar is
   generic (
     CFAR_TYPE     : cfar_t  := SO;
     SAMPLE_W      : integer := 16;    
@@ -24,7 +24,7 @@ entity ca_cfar is
 end entity;
 
 
-architecture Behavioral of ca_cfar is
+architecture Behavioral of cfar is
   function sizeof(n : integer) return integer is
   begin
     return integer(ceil(log2(real(n))));
