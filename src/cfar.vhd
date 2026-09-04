@@ -41,12 +41,10 @@ architecture Behavioral of cfar is
   
   signal curr_idx: integer range 0 to TOTAL_SAMPLES := 0;
   signal full: std_logic;
-  signal sum_all: unsigned(SUM_W - 1 downto 0) := (others => '0');
   signal left_sum: unsigned(SUM_W - 1 downto 0) := (others => '0');
   signal right_sum: unsigned(SUM_W - 1 downto 0) := (others => '0');
   signal estimator: unsigned(SUM_W - 1 downto 0);
   signal threshold: unsigned(T_W - 1 downto 0);
-  
   signal window      : sample_array_t(0 to TOTAL_SAMPLES - 1) := (others => (others => '0'));
   
 begin
@@ -96,16 +94,11 @@ begin
     if rising_edge(clk) then
       if rst = '1' then
         curr_idx <= 0;
-        sum_all <= (others => '0');
         window <= (others => (others => '0'));
         left_sum <= (others => '0');
         right_sum <= (others => '0');
       elsif s_valid = '1' then 
         window <= window(1 to TOTAL_SAMPLES - 1) & s_data;
-
-        sum_all <= sum_all
-          + resize(unsigned(s_data), SUM_W)
-          - resize(unsigned(window(0)), SUM_W);
         right_sum <= right_sum
           + resize(unsigned(s_data), SUM_W)
           - resize(unsigned(window(TOTAL_SAMPLES - HALF_REF)), SUM_W);
