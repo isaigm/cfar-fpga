@@ -60,11 +60,7 @@ begin
 
   gen_ca: if CFAR_TYPE = CA generate
     m_detect <= '1' when full = '1' and (shift_left(resize(unsigned(window(CUT_IDX)), T_W), ALPHA_FRAC + sizeof(N_REF)) > threshold) else '0';
-    process(left_sum, right_sum)
-      variable sum: unsigned(SUM_W - 1 downto 0);
-    begin
-      estimator <= left_sum + right_sum;
-    end process;
+    estimator <= left_sum + right_sum;
   end generate;
   
   gen_go: if CFAR_TYPE = GO generate
