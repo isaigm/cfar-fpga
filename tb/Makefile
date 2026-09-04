@@ -1,6 +1,6 @@
 TOPLEVEL_LANG = vhdl
 SIM          ?= ghdl
-VHDL_SOURCES  = $(PWD)/../src/cfar_pkg.vhd $(PWD)/../src/ca_cfar.vhd
+VHDL_SOURCES  = $(PWD)/../src/cfar_pkg.vhd $(PWD)/../src/cfar.vhd
 TOPLEVEL      = cfar
 MODULE        = test_ca_cfar
 EXTRA_ARGS   += --std=08

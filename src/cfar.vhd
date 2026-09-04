@@ -5,7 +5,7 @@ library ieee;
   use work.cfar_pkg.all;
 entity cfar is
   generic (
-    CFAR_TYPE     : cfar_t  := SO;
+    CFAR_TYPE     : cfar_t  := CA;
     SAMPLE_W      : integer := 16;    
     N_REF         : integer := 16;   
     N_GUARD       : integer := 2;    
@@ -48,9 +48,6 @@ architecture Behavioral of cfar is
   signal threshold: unsigned(T_W - 1 downto 0);
   
   signal window      : sample_array_t(0 to TOTAL_SAMPLES - 1) := (others => (others => '0'));
-  signal left_window : sample_array_t(0 to HALF_REF - 1) := (others => (others => '0'));
-  signal right_window : sample_array_t(0 to HALF_REF - 1) := (others => (others => '0'));
-
   
 begin
   full    <= '1' when curr_idx >= TOTAL_SAMPLES else '0';
@@ -65,15 +62,10 @@ begin
 
   gen_ca: if CFAR_TYPE = CA generate
     m_detect <= '1' when full = '1' and (shift_left(resize(unsigned(window(CUT_IDX)), T_W), ALPHA_FRAC + sizeof(N_REF)) > threshold) else '0';
-    process(sum_all, window)
+    process(left_sum, right_sum)
       variable sum: unsigned(SUM_W - 1 downto 0);
     begin
-      sum := sum_all;
-      for j in HALF_REF to CUT_IDX + N_GUARD loop
-        sum := sum - resize(unsigned(window(j)), SUM_W);
-      end loop;
-      estimator <= sum;
-
+      estimator <= left_sum + right_sum;
     end process;
   end generate;
   
@@ -106,23 +98,20 @@ begin
         curr_idx <= 0;
         sum_all <= (others => '0');
         window <= (others => (others => '0'));
-        left_window <= (others => (others => '0'));
-        right_window <= (others => (others => '0'));
         left_sum <= (others => '0');
         right_sum <= (others => '0');
       elsif s_valid = '1' then 
         window <= window(1 to TOTAL_SAMPLES - 1) & s_data;
-        right_window <= right_window(1 to HALF_REF - 1) & s_data;
-        left_window <= left_window(1 to HALF_REF - 1) & window(HALF_REF);
+
         sum_all <= sum_all
           + resize(unsigned(s_data), SUM_W)
           - resize(unsigned(window(0)), SUM_W);
         right_sum <= right_sum
           + resize(unsigned(s_data), SUM_W)
-          - resize(unsigned(right_window(0)), SUM_W);
+          - resize(unsigned(window(TOTAL_SAMPLES - HALF_REF)), SUM_W);
         left_sum <= left_sum
           + resize(unsigned(window(HALF_REF)), SUM_W)
-          - resize(unsigned(left_window(0)), SUM_W);
+          - resize(unsigned(window(0)), SUM_W);
         if full = '0' then
           curr_idx <= curr_idx + 1;
         end if;     
