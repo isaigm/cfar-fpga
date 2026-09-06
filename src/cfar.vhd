@@ -145,23 +145,12 @@ begin
         if rst = '1' then
           curr_idx     <= 0;
           window       <= (others => (others => '0'));
-          left_sum     <= (others => '0');
-          right_sum    <= (others => '0');
           cut_delay    <= (others => (others => '0'));
           valid_delay  <= (others => '0');
         elsif s_valid = '1' then
           window       <= window(1 to TOTAL_SAMPLES - 1) & s_data;
           cut_delay    <= cut_delay(1 to SORT_LAT - 1) & window(CUT_IDX);
           valid_delay  <= valid_delay(1 to SORT_LAT - 1) & (full and s_valid);
-
-          right_sum <= right_sum
-            + resize(unsigned(s_data), SUM_W)
-            - resize(unsigned(window(TOTAL_SAMPLES - HALF_REF)), SUM_W);
-            
-          left_sum <= left_sum
-            + resize(unsigned(window(HALF_REF)), SUM_W)
-            - resize(unsigned(window(0)), SUM_W);
-
           if full = '0' then
             curr_idx <= curr_idx + 1;
           end if;
