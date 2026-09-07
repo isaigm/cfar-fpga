@@ -1,0 +1,22 @@
+# ---------------------------------------------------------------------------
+# Line endings: this repo is LF everywhere (Unix tooling: GHDL, cocotb, make).
+# Git normalizes to LF on commit and checks out LF on every platform.
+# ---------------------------------------------------------------------------
+* text=auto eol=lf
+
+# Binary assets: never touch (no EOL conversion, no diff).
+*.png binary
+
+# ---------------------------------------------------------------------------
+# GitHub Linguist: this is a VHDL project.
+# The Python golden model + cocotb testbench and the plotting script are the
+# verification/tooling harness, not the deliverable. Keep them in the repo but
+# exclude them from the language statistics so the language bar reflects the RTL.
+#   (Swap `linguist-vendored` for `linguist-documentation` below if you'd rather
+#    keep the Python fully expanded in GitHub diffs; both exclude it from stats.)
+# ---------------------------------------------------------------------------
+*.py        linguist-vendored
+tb/Makefile linguist-vendored
+
+# Make sure the HDL is what gets counted.
+*.vhd linguist-language=VHDL
