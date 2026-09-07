@@ -15,10 +15,17 @@ from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge, FallingEdge
 import random, math, os
 import numpy as np
-from cfar_golden import ca_cfar
+from cfar_golden import ca_cfar, ALPHA_FP as ALPHA_FP_CA, N_REF
 
 CFAR_MODE = os.environ.get("CFAR_MODE", "CA")   # must match RTL generic CFAR_TYPE
 N_GUARD   = int(os.environ.get("N_GUARD", "2"))
+OS_RANK   = int(os.environ.get("OS_RANK", "3")) # must match RTL generic OS_RANK
+# alpha must match the RTL generic ALPHA_FP for the mode under test
+ALPHA_FP  = int(os.environ.get("ALPHA_FP", str(ALPHA_FP_CA)))
+
+# Sorter pipeline latency (0 for non-OS). Bitonic depth = clog2(N)*(clog2(N)+1)/2.
+_LOGN     = (N_REF - 1).bit_length()
+SORT_LAT  = _LOGN * (_LOGN + 1) // 2 if CFAR_MODE == "OS" else 0
 
 
 def scenario(n=400, seed=0):
@@ -52,12 +59,15 @@ async def test_cfar(dut):
     # same stimulus to DUT and golden -> fair bit-exact comparison
     x = scenario()
     detect_g, valid_g = ca_cfar(np.array(x, dtype=np.int64),
-                                n_guard=N_GUARD, cfar_type=CFAR_MODE)
+                                alpha_fp=ALPHA_FP, n_guard=N_GUARD,
+                                cfar_type=CFAR_MODE, os_rank=OS_RANK)
     gold = list(detect_g[valid_g].astype(int))   # valid decisions, in order
 
-    # drive the stream, capture outputs when m_valid is high
+    # drive the stream, then drain SORT_LAT extra valid cycles to flush the sorter
+    # pipeline (0 for non-OS). Drain samples enter after all real data, so their
+    # (contaminated) valid outputs land past len(gold) and are dropped by the slice.
     hw = []
-    for v in x:
+    for v in list(x) + [0] * SORT_LAT:
         dut.s_data.value = v
         dut.s_valid.value = 1
         await RisingEdge(dut.clk)      # DUT registers the shift/sum on this edge

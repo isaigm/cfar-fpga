@@ -31,7 +31,7 @@ ALPHA_FP = round(alpha_from_pfa(PFA) * (1 << ALPHA_FRAC))
 
 
 def ca_cfar(x, alpha_fp=ALPHA_FP, n_ref=N_REF, n_guard=N_GUARD,
-            alpha_frac=ALPHA_FRAC, cfar_type='CA'):
+            alpha_frac=ALPHA_FRAC, cfar_type='CA', os_rank=3):
     """
     CFAR detection, bit-exact to the hardware, for any variant.
 
@@ -74,7 +74,9 @@ def ca_cfar(x, alpha_fp=ALPHA_FP, n_ref=N_REF, n_guard=N_GUARD,
             est   = min(int(older.sum()), int(newer.sum()))
             shift = log2h + alpha_frac
         elif cfar_type == 'OS':
-            raise NotImplementedError("OS: sorting network not implemented yet")
+            ref   = np.concatenate([older, newer])   # all N reference cells
+            est   = int(np.sort(ref)[os_rank - 1])   # k-th smallest (1-based rank)
+            shift = alpha_frac                        # single cell -> no /N averaging
         else:
             raise ValueError(f"unknown cfar_type: {cfar_type}")
 

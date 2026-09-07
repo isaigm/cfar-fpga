@@ -36,7 +36,7 @@ architecture Behavioral of cfar is
   constant T_W           : integer := SUM_W + ALPHA_W;
   constant HALF_REF      : integer := N_REF / 2;
   constant CUT_IDX       : integer := HALF_REF + N_GUARD;
-  constant SORT_LAT      : integer := 10;
+  constant SORT_LAT      : integer := sizeof(N_REF) * (sizeof(N_REF) + 1) / 2;
 
   signal curr_idx          : integer range 0 to TOTAL_SAMPLES := 0;
   signal full              : std_logic;
@@ -44,10 +44,10 @@ architecture Behavioral of cfar is
   signal right_sum         : unsigned(SUM_W - 1 downto 0) := (others => '0');
   signal estimator         : unsigned(SUM_W - 1 downto 0);
   signal threshold         : unsigned(T_W - 1 downto 0);
-  signal window            : sample_array_t (0 to TOTAL_SAMPLES - 1) := (others => (others => '0'));
-  signal ref_window        : sample_array_t (0 to N_REF - 1);
-  signal sorted_ref_window : sample_array_t (0 to N_REF - 1);
-  signal cut_delay         : sample_array_t (0 to SORT_LAT - 1) := (others => (others => '0'));
+  signal window            : sample_array_t (0 to TOTAL_SAMPLES - 1)(SAMPLE_W - 1 downto 0) := (others => (others => '0'));
+  signal ref_window        : sample_array_t (0 to N_REF - 1)(SAMPLE_W - 1 downto 0);
+  signal sorted_ref_window : sample_array_t (0 to N_REF - 1)(SAMPLE_W - 1 downto 0);
+  signal cut_delay         : sample_array_t (0 to SORT_LAT - 1)(SAMPLE_W - 1 downto 0) := (others => (others => '0'));
   signal valid_delay       : std_logic_vector(0 to SORT_LAT - 1) := (others => '0');
 
 begin
@@ -145,12 +145,23 @@ begin
         if rst = '1' then
           curr_idx     <= 0;
           window       <= (others => (others => '0'));
+          left_sum     <= (others => '0');
+          right_sum    <= (others => '0');
           cut_delay    <= (others => (others => '0'));
           valid_delay  <= (others => '0');
         elsif s_valid = '1' then
           window       <= window(1 to TOTAL_SAMPLES - 1) & s_data;
           cut_delay    <= cut_delay(1 to SORT_LAT - 1) & window(CUT_IDX);
           valid_delay  <= valid_delay(1 to SORT_LAT - 1) & (full and s_valid);
+
+          right_sum <= right_sum
+            + resize(unsigned(s_data), SUM_W)
+            - resize(unsigned(window(TOTAL_SAMPLES - HALF_REF)), SUM_W);
+            
+          left_sum <= left_sum
+            + resize(unsigned(window(HALF_REF)), SUM_W)
+            - resize(unsigned(window(0)), SUM_W);
+
           if full = '0' then
             curr_idx <= curr_idx + 1;
           end if;

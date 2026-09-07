@@ -4,16 +4,16 @@ library ieee;
   use ieee.math_real.all;
   use work.cfar_pkg.all;
 
-entity bitonic_sort_pl is
+entity bitonic_network is
   generic ( N : integer := 16; WIDTH : integer := 16; DIR : std_logic := '1' );
   port (
     clk     : in  std_logic;
-    inputs  : in  sample_array_t(0 to N - 1);
-    outputs : out sample_array_t(0 to N - 1)
+    inputs  : in  sample_array_t(0 to N - 1)(WIDTH - 1 downto 0);
+    outputs : out sample_array_t(0 to N - 1)(WIDTH - 1 downto 0)
   );
 end entity;
 
-architecture rtl of bitonic_sort_pl is
+architecture rtl of bitonic_network is
   function clog2(x : integer) return integer is
   begin return integer(ceil(log2(real(x)))); end function;
   function bxor(a, b : integer) return integer is
@@ -24,7 +24,7 @@ architecture rtl of bitonic_sort_pl is
   constant LOGN   : integer := clog2(N);
   constant STAGES : integer := LOGN * (LOGN + 1) / 2;
 
-  type grid_t is array (0 to STAGES) of sample_array_t(0 to N - 1);
+  type grid_t is array (0 to STAGES) of sample_array_t(0 to N - 1)(WIDTH - 1 downto 0);
   signal reg  : grid_t;
   signal comb : grid_t;
 begin
