@@ -216,7 +216,7 @@ configurations are included to illustrate it.
 .
 |-- src/
 |   |-- cfar_pkg.vhd        -- cfar_t enum + unconstrained sample_array_t (CA/GO/SO/OS)
-|   |-- bitonic_sort.vhd    -- pipelined bitonic sorting network (used by OS)
+|   |-- bitonic_network.vhd    -- pipelined bitonic sorting network (used by OS)
 |   `-- cfar.vhd            -- the configurable detector
 |-- golden/
 |   `-- cfar_golden.py      -- fixed-point reference model (CA/GO/SO/OS)
