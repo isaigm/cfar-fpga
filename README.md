@@ -9,6 +9,10 @@ The estimator variant (**CA / GO / SO / OS**) is selected at elaboration time
 through a single generic, so one design covers the whole family without paying for
 the modes you don't use.
 
+On top of that family, **`src/vi_cfar.vhd` adds VI-CFAR** — an adaptive *composite*
+detector that inspects the reference data around each cell and switches between CA,
+GO and SO **at run time**, per cell (see the VI-CFAR section below).
+
 ---
 
 ## What is CFAR?
@@ -180,14 +184,114 @@ CFAR_MODE=OS make              # OS_RANK defaults to 3; override with e.g. OS_RA
 | GO   | 142  | 202  | 1 | +5.925 ns | +0.069 ns | ~245 MHz |
 | SO   | 142  | 202  | 1 | +5.751 ns | +0.111 ns | ~235 MHz |
 | OS   | 1828 | 2101 | 1 | +4.379 ns | +0.043 ns | ~178 MHz |
+| VI\* | 517  | 463  | 12 | +4.574 ns | +0.102 ns | ~184 MHz |
 
-All four modes close timing at the 100 MHz constraint (10 ns) with positive setup
-**and** hold slack and zero failed routes. The averaging variants (CA/GO/SO) are
+All four `CFAR_TYPE` modes — and the standalone **VI** composite — close timing at the
+100 MHz constraint (10 ns) with positive setup **and** hold slack and zero failed
+routes. The averaging variants (CA/GO/SO) are
 tiny — ~140 LUT, ~200 FF, and a single DSP for the alpha multiply. **OS** adds the
 pipelined bitonic sorting network (16 elements, 10 compare-swap stages), which costs
 roughly **13x the LUTs and 10x the FFs** and pulls Fmax down to ~178 MHz; the sorter
 is pure compare-swap logic, so it adds no DSPs. Fmax is estimated as `1/(T - WNS)` at
 the 100 MHz constraint and is indicative, not a swept maximum.
+
+\* **VI** is the standalone composite (its own `vi_cfar` top-level, not a `CFAR_TYPE`
+selection). Its second-order VI/MR datapath is where the **12 DSPs** and the slightly
+higher LUT/FF come from; it still clears 100 MHz by a wide margin at 0.09 W. Full
+details in the next section.
+
+---
+
+## VI-CFAR (adaptive composite detector)
+
+`src/vi_cfar.vhd` is a separate top-level that does at **run time** what `CFAR_TYPE`
+does at elaboration: for every CUT it inspects the surrounding reference data and
+adapts between **CA, GO and SO** on a cell-by-cell basis. This is the
+Variability-Index CFAR of Smith & Varshney — low-loss like CA in homogeneous
+clutter, false-alarm control like GO at clutter edges, and multiple-target
+robustness like SO — without committing to one mode up front.
+
+Because the choice is per-cell, VI-CFAR **cannot** use the `if ... generate` trick:
+the CA, GO and SO estimators must all exist in the fabric at once and be muxed by
+the decision. It is a *superset* of the averaging family, not a member of it, which
+is why it lives in its own entity rather than as another `CFAR_TYPE`.
+
+### Decision logic
+
+Two statistics, both computed from the two half-windows (**A** = leading,
+**B** = lagging), drive the decision:
+
+- **Variability Index** per window: `VI = (N/2) * Σx² / (Σx)²`, a second-order
+  statistic. `VI <= K_VI` means the window is *homogeneous*; above it, *variable*
+  (a target or edge lives there).
+- **Mean Ratio** between windows: `MR = SumA / SumB`. Inside `[1/K_MR, K_MR]` the
+  two sides sit at the *same* level.
+
+| Window A (lead) | Window B (lag) | Means | Environment | Noise estimate |
+|-----------------|----------------|-------|-------------|----------------|
+| homogeneous | homogeneous | same      | homogeneous      | **CA** over both windows (`N` cells) |
+| homogeneous | homogeneous | different | clutter edge     | **GO** = greater side (`N/2`) |
+| homogeneous | variable    | —         | interferer in B  | CA over **A** only (`N/2`) |
+| variable    | homogeneous | —         | interferer in A  | CA over **B** only (`N/2`) |
+| variable    | variable    | —         | multiple targets | **SO** = smaller side (`N/2`) |
+
+### What VI adds to the datapath
+
+- A **squares window** running in lockstep with the sample window, and running
+  **sum-of-squares** per side (`sq_left_sum` / `sq_right_sum`) maintained the same
+  incremental `+= incoming - outgoing` way as the raw sums. Each incoming sample is
+  squared **once** and reused for both the accumulator and the shift register — a
+  single squarer on the streaming path.
+- The **VI test** is kept division-free by cross-multiplying:
+  `m*SqA << F  <=  K_VI * SumA²` (with `m = N/2`, a power of two, folded into the
+  shift). It carries a `SumA²` term, so this comparison is wide (~53 b) — much wider
+  than the **MR test**, which is linear in the sums (~30 b). Each gets its own
+  comparison width.
+- **Per-mode alpha.** Normalising over `N` (both windows) vs `N/2` (single window)
+  needs different scale factors to hold one Pfa, so the mux selects the shift **and**
+  the alpha together: `ALPHA_FP_BOTH` for CA-over-both, `ALPHA_FP_HALF` for
+  GO / SO / single-window CA.
+- **Zero added latency.** Everything downstream of the registered front-end is
+  combinational, so — unlike OS — there is no pipeline to drain and no delay line:
+  the CUT lines up with its decision in the same cycle.
+
+### Verification
+
+Same method as the base design: cocotb + GHDL against `golden/vi_cfar_golden.py`, a
+fixed-point model that runs the VI and MR tests in the **same** cross-multiplied
+integer form as the RTL (a float model would disagree exactly at the decision
+boundaries). The stimulus is built to exercise all five branches, and every per-CUT
+decision matches bit for bit:
+
+```
+[VI] PASS: 4980 decisions bit-identical to golden
+     branch mix: CA-both 2331   GO 1032   CA-A 622   CA-B 630   SO 365
+```
+
+The thresholds (`K_VI_FP`, `K_MR_FP`) and both alphas are passed to the golden
+**and** the RTL from the same Makefile variables, so the bit-exact check holds while
+you sweep them.
+
+### On the FPGA
+
+On Artix-7 (Basys 3) it closes the 100 MHz constraint with **+4.574 ns** setup slack
+(Fmax ~184 MHz), using ~2.5% of LUTs, ~1.1% of FFs and **12 / 90 DSPs** at 0.09 W —
+the `VI` row in the synthesis table above. The 12 DSPs are the second-order cost: the
+sample squarer plus the `Sum²` and constant multiplies in the VI / MR tests and the
+`estimator * alpha`. They share/pipeline down if ever needed, but at 13% there is no
+pressure.
+
+### Run it
+
+```bash
+make -f Makefile.vi                                   # SIM=ghdl by default
+make -f Makefile.vi K_VI_FP=1100 ALPHA_FP_HALF=4600   # sweep thresholds / alpha
+```
+
+> **Tuning:** the canonical `K_VI ~= 4.76`, `K_MR ~= 1.806` and the two alphas were
+> derived for a specific `N` and Pfa. Bit-exactness proves the *arithmetic* is right;
+> holding your **target Pfa** in each environment is the empirical step — sweep the
+> four constants against the golden until the false-alarm rate lands.
 
 ---
 
@@ -217,13 +321,17 @@ configurations are included to illustrate it.
 |-- src/
 |   |-- cfar_pkg.vhd        -- cfar_t enum + unconstrained sample_array_t (CA/GO/SO/OS)
 |   |-- bitonic_network.vhd    -- pipelined bitonic sorting network (used by OS)
-|   `-- cfar.vhd            -- the configurable detector
+|   |-- cfar.vhd            -- the configurable detector (CA/GO/SO/OS)
+|   `-- vi_cfar.vhd         -- VI-CFAR composite (adaptive CA/GO/SO)
 |-- golden/
-|   `-- cfar_golden.py      -- fixed-point reference model (CA/GO/SO/OS)
+|   |-- cfar_golden.py      -- fixed-point reference model (CA/GO/SO/OS)
+|   `-- vi_cfar_golden.py   -- fixed-point reference model (VI-CFAR)
 |-- tb/
-|   |-- test_ca_cfar.py     -- cocotb testbench (variant via CFAR_MODE env var)
+|   |-- test_ca_cfar.py     -- cocotb testbench, CA/GO/SO/OS (variant via CFAR_MODE)
+|   |-- test_vi_cfar.py     -- cocotb testbench, VI-CFAR
 |   |-- test_diag.py        -- diagnostic testbench (per-CUT RTL-vs-golden dump)
-|   `-- Makefile
+|   |-- Makefile            -- CA/GO/SO/OS
+|   `-- Makefile.vi         -- VI-CFAR
 |-- docs/
 |   |-- nguard1.png
 |   `-- nguard2.png
@@ -239,5 +347,7 @@ configurations are included to illustrate it.
 - [x] OS-CFAR with a pipelined bitonic sorting network
 - [x] Bit-exact verification vs fixed-point golden (cocotb)
 - [x] Timing closure on Artix-7 (all four modes @ 100 MHz)
-- [ ] Per-variant alpha (correct Pfa in GO / SO / OS)
+- [x] **VI-CFAR** composite — adaptive CA/GO/SO, per-mode alpha, verified bit-exact + 100 MHz (~184 MHz, 12 DSP)
+- [ ] Per-variant alpha for the standalone GO / SO / OS modes (correct Pfa)
+- [ ] Pfa sweep / tuning of `K_VI`, `K_MR` and the two VI-CFAR alphas
 - [ ] 2-D (Range-Doppler) CFAR

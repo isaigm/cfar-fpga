@@ -1,0 +1,27 @@
+TOPLEVEL_LANG = vhdl
+SIM          ?= ghdl
+VHDL_SOURCES  = $(PWD)/../src/cfar_pkg.vhd $(PWD)/../src/vi_cfar.vhd
+TOPLEVEL      = vi_cfar
+MODULE        = test_vi_cfar
+EXTRA_ARGS   += --std=08
+
+# Decision thresholds + per-mode alphas. They must agree on both sides, so we
+# export them to the golden AND override the matching RTL generics from the same
+# variables. All are tunable -- sweep them and re-run to chase your target Pfa.
+K_VI_FP       ?= 1219
+K_MR_FP       ?= 462
+ALPHA_FP_BOTH ?= 3188
+ALPHA_FP_HALF ?= 4428
+
+export K_VI_FP
+export K_MR_FP
+export ALPHA_FP_BOTH
+export ALPHA_FP_HALF
+
+# GHDL applies top-level generic overrides at run time.
+SIM_ARGS += -gK_VI_FP=$(K_VI_FP) -gK_MR_FP=$(K_MR_FP) \
+            -gALPHA_FP_BOTH=$(ALPHA_FP_BOTH) -gALPHA_FP_HALF=$(ALPHA_FP_HALF)
+
+# golden model is in ../golden
+export PYTHONPATH := $(PWD)/../golden:$(PYTHONPATH)
+include $(shell cocotb-config --makefiles)/Makefile.sim
